@@ -176,3 +176,20 @@ class TestConnector(unittest.TestCase):
 		name = queue()
 		with self.assertRaises(frappe.ValidationError):
 			frappe.delete_doc("OAN Message", name, ignore_permissions=True)
+
+	def test_queue_never_raises_into_the_caller(self):
+		# A reference that does not exist (yet) is accepted: the link is informational.
+		self.assertTrue(queue(reference_doctype="User", reference_name="TEST-CONNECTOR-MISSING"))
+		# A storage failure is logged and rolled back to a savepoint, never raised.
+		original = frappe.get_doc
+
+		def broken(*a, **k):
+			doc = original(*a, **k)
+			doc.insert = lambda **kw: (_ for _ in ()).throw(RuntimeError("synthetic"))
+			return doc
+
+		frappe.get_doc = broken
+		try:
+			self.assertIsNone(queue())
+		finally:
+			frappe.get_doc = original
