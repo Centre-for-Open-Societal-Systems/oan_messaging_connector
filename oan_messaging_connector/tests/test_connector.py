@@ -185,7 +185,8 @@ class TestConnector(unittest.TestCase):
 
 		def broken(*a, **k):
 			doc = original(*a, **k)
-			doc.insert = lambda **kw: (_ for _ in ()).throw(RuntimeError("synthetic"))
+			if doc.doctype == "OAN Message":  # Error Log inserts must still work
+				doc.insert = lambda **kw: (_ for _ in ()).throw(RuntimeError("synthetic"))
 			return doc
 
 		frappe.get_doc = broken
