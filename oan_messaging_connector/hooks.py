@@ -1,0 +1,21 @@
+app_name = "oan_messaging_connector"
+app_title = "OAN Messaging Connector"
+app_publisher = "OpenAgriNet"
+app_description = "Send SMS through the OAN Messaging Service: outbox, dispatch and status polling"
+app_email = "admin@openagrinet.org"
+# Licence not chosen yet: choosing one needs explicit authorisation.
+app_license = "unlicensed"
+
+# Every caller app (A2C, Grievance, DA, Auth, ...) installs this app and calls
+# oan_messaging_connector.api.queue_sms(...) from its own business events.
+
+scheduler_events = {
+	"cron": {
+		# Safety-net dispatch (the normal path is enqueue_after_commit) and status polling.
+		# Both are no-ops until OAN Messaging Settings is enabled and configured.
+		"* * * * *": [
+			"oan_messaging_connector.outbox.dispatch_queued",
+			"oan_messaging_connector.outbox.poll_statuses",
+		],
+	},
+}

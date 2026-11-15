@@ -1,0 +1,72 @@
+{
+ "actions": [],
+ "creation": "2026-11-15 12:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-11-15 12:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "OAN Messaging Connector",
+ "owner": "Administrator",
+ "states": [],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "name": "OAN Messaging Settings",
+ "issingle": 1,
+ "field_order": [
+  "enabled",
+  "base_url",
+  "token",
+  "ca_bundle",
+  "max_attempts",
+  "receipt_wait_days"
+ ],
+ "fields": [
+  {
+   "fieldname": "enabled",
+   "fieldtype": "Check",
+   "label": "Enabled",
+   "description": "Off: queue_sms() does nothing and the jobs are idle."
+  },
+  {
+   "fieldname": "base_url",
+   "fieldtype": "Data",
+   "label": "OAN API Base URL",
+   "description": "Scheme and host only, e.g. https://oan-messaging.dev.example.invalid"
+  },
+  {
+   "fieldname": "token",
+   "fieldtype": "Password",
+   "label": "Caller Token",
+   "description": "Issued by the OAN operator for this caller. site_config oan_messaging_token overrides it."
+  },
+  {
+   "fieldname": "ca_bundle",
+   "fieldtype": "Data",
+   "label": "CA Bundle Path",
+   "description": "Optional PEM path for the OAN API certificate."
+  },
+  {
+   "fieldname": "max_attempts",
+   "fieldtype": "Int",
+   "label": "HTTP Attempts per Dispatch",
+   "default": "3"
+  },
+  {
+   "fieldname": "receipt_wait_days",
+   "fieldtype": "Int",
+   "label": "Stop Polling SMS After (days)",
+   "default": "7"
+  }
+ ],
+ "permissions": [
+  {
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "role": "System Manager"
+  }
+ ],
+ "description": "Connection to the OAN Messaging Service for this site."
+}
