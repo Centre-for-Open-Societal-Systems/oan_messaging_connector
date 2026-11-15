@@ -13,7 +13,8 @@ caller would otherwise rebuild:
 * the one-SMS-part length check: 160 GSM-7 characters, or 70 if any Amharic character;
 * **OAN Messaging Settings**: base URL, caller token (Password), CA bundle.
 
-Status: **trial build, not released**. No licence has been chosen.
+Status: **trial build, not released**. Licensed under the MIT License, the same as other
+OAN services (see `LICENSE`).
 
 ## Use it from a caller app
 

@@ -3,8 +3,7 @@ app_title = "OAN Messaging Connector"
 app_publisher = "OpenAgriNet"
 app_description = "Send SMS through the OAN Messaging Service: outbox, dispatch and status polling"
 app_email = "admin@openagrinet.org"
-# Licence not chosen yet: choosing one needs explicit authorisation.
-app_license = "unlicensed"
+app_license = "MIT"
 
 # Every caller app (A2C, Grievance, DA, Auth, ...) installs this app and calls
 # oan_messaging_connector.api.queue_sms(...) from its own business events.
