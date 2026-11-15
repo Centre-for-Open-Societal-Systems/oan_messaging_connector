@@ -92,7 +92,19 @@ def queue_sms(
 	               "reference_name": reference_name, "event": event,
 	               "language": language, "desk_status": "Queued"})
 	values.pop("delivery_id")
-	doc = frappe.get_doc(values).insert(ignore_permissions=True)
+	doc = frappe.get_doc(values)
+	# The reference is informational: it may be a record created in this same
+	# transaction, or one a caller deletes later. Never fail the message on it.
+	doc.flags.ignore_links = True
+	savepoint = "oan_queue_sms"
+	frappe.db.savepoint(savepoint)
+	try:
+		doc.insert(ignore_permissions=True)
+	except Exception as exc:  # never break the caller's business action
+		frappe.db.rollback(save_point=savepoint)
+		frappe.log_error(f"OAN SMS not queued ({reference_doctype} {reference_name} {event}): "
+		                 f"{type(exc).__name__}", "OAN Messaging")
+		return None
 	frappe.enqueue("oan_messaging_connector.outbox.dispatch_queued", queue="short",
 	               enqueue_after_commit=True)
 	return doc.name
