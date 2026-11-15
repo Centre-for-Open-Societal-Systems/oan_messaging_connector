@@ -9,8 +9,8 @@
   ``needs_attention``. SMS polling stops after ``receipt_wait_days``.
 
 Configuration: **OAN Messaging Settings**. ``site_config.json`` keys
-``oan_messaging_enabled``, ``oan_messaging_base_url`` and ``oan_messaging_token``
-override it, so a deployment can inject the token from its secret store.
+``oan_messaging_enabled``, ``oan_messaging_base_url``, ``oan_messaging_token`` and
+``oan_messaging_ca_bundle`` override it, so a deployment can inject the token from its secret store.
 """
 
 from __future__ import annotations
@@ -46,7 +46,7 @@ def _settings() -> dict[str, Any]:
 		"enabled": bool(frappe.conf.get("oan_messaging_enabled", s.get("enabled"))),
 		"base_url": frappe.conf.get("oan_messaging_base_url") or s.get("base_url"),
 		"token": token,
-		"ca_bundle": s.get("ca_bundle") or None,
+		"ca_bundle": frappe.conf.get("oan_messaging_ca_bundle") or s.get("ca_bundle") or None,
 		"max_attempts": int(s.get("max_attempts") or 3),
 		"receipt_wait": timedelta(days=int(s.get("receipt_wait_days") or 7)),
 	}

@@ -55,6 +55,7 @@ Kubernetes):
 bench --site <site> set-config oan_messaging_enabled 1
 bench --site <site> set-config oan_messaging_base_url https://oan-messaging.<env>
 bench --site <site> set-config oan_messaging_token <token from the OAN operator>
+bench --site <site> set-config oan_messaging_ca_bundle /path/to/ca.pem   # only for a private CA
 ```
 
 The scheduler must be running: `bench --site <site> enable-scheduler`.
