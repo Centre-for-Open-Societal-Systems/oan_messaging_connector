@@ -27,6 +27,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import frappe
+from frappe.query_builder.functions import IfNull
 from frappe.utils import now_datetime
 
 from .vendor.oan_client import ClientConfig, OanClient, Secret
@@ -34,7 +35,6 @@ from .vendor.outbox_dispatch import OutboxRow, dispatch, reconcile
 
 DOCTYPE = "OAN Message"
 SETTINGS = "OAN Messaging Settings"
-TABLE = f"`tab{DOCTYPE}`"
 ROW_FIELDS = [f.name for f in dataclasses.fields(OutboxRow)]
 DESK_STATUS = {"queued": "Queued", "accepted": "Submitted"}
 _DATES = ("expires_at", "first_submitted_at", "next_attempt_at", "next_poll_at", "poll_deadline")
@@ -65,8 +65,12 @@ def enabled() -> bool:
 
 def _run(step: Callable[[OanClient], Awaitable[Any]]) -> Any:
 	s = _settings()
-	cfg = ClientConfig(base_url=s["base_url"], token=Secret(s["token"]),
-	                   ca_bundle=s["ca_bundle"], max_attempts=s["max_attempts"])
+	cfg = ClientConfig(
+		base_url=s["base_url"],
+		token=Secret(s["token"]),
+		ca_bundle=s["ca_bundle"],
+		max_attempts=s["max_attempts"],
+	)
 
 	async def go() -> Any:
 		client = OanClient(cfg, transport=_transport) if _transport is not None else OanClient(cfg)
@@ -122,49 +126,78 @@ def mask_recipient(recipient: str | None) -> str:
 	return "*" * max(0, len(value) - 2) + value[-2:] if value else ""
 
 
+def _table():
+	return frappe.qb.DocType(DOCTYPE)
+
+
 def purge_content(limit: int = 500) -> int:
 	"""Clear text and mask the recipient of finished rows past the retention period.
 
 	Runs whether or not the connector is enabled (privacy). Queued rows, and submitted
 	rows still being polled, keep their content. Returns the number of rows purged.
+	The scheduler commits when the job ends.
 	"""
 	# ``modified`` is stored in the site's time zone, like now_datetime().
 	cutoff = now_datetime() - timedelta(days=_retention_days())
-	rows = frappe.db.sql(
-		f"""select name, recipient from {TABLE}
-		    where ifnull(text, '') != '' and state != 'queued'
-		      and (poll_complete = 1 or state != 'accepted')
-		      and modified < %s
-		    order by modified limit %s""",
-		(cutoff, limit),
-	)
-	for name, recipient in rows:
-		frappe.db.set_value(DOCTYPE, name, {"text": "", "recipient": mask_recipient(recipient)},
-		                    update_modified=False)
-	frappe.db.commit()
+	m = _table()
+	rows = (
+		frappe.qb.from_(m)
+		.select(m.name, m.recipient)
+		.where(IfNull(m.text, "") != "")
+		.where(m.state != "queued")
+		.where((m.poll_complete == 1) | (m.state != "accepted"))
+		.where(m.modified < cutoff)
+		.orderby(m.modified)
+		.limit(limit)
+	).run(as_dict=True)
+	for row in rows:
+		frappe.db.set_value(
+			DOCTYPE,
+			row.name,
+			{"text": "", "recipient": mask_recipient(row.recipient)},
+			update_modified=False,
+		)
 	return len(rows)
+
+
+def _claim(condition, order_by) -> dict[str, Any] | None:
+	"""Lock and read one due row, skipping rows another worker holds."""
+	m = _table()
+	rows = (
+		frappe.qb.from_(m)
+		.select(m.name, *(m[f] for f in ROW_FIELDS))
+		.where(condition)
+		.orderby(order_by)
+		.limit(1)
+		.for_update(skip_locked=True)
+	).run(as_dict=True)
+	return rows[0] if rows else None
+
+
+def _commit_row() -> None:
+	"""One commit per row: it releases this row's lock and records the outcome of the
+	OAN call before the next row, so a crash never makes the next run resend it blind."""
+	frappe.db.commit()  # nosemgrep: frappe-semgrep-rules.rules.frappe-manual-commit
 
 
 def dispatch_queued(limit: int = 50) -> int:
 	"""Send due queued rows; returns how many dispatch runs were made."""
 	if not enabled():
 		return 0
+	m = _table()
 	runs = 0
+	seen: set[str] = set()
 	for _ in range(limit):
 		now = datetime.now(UTC)
-		found = frappe.db.sql(
-			f"""select name from {TABLE} where state = 'queued'
-			    and (next_attempt_at is null or next_attempt_at <= %s)
-			    order by creation limit 1 for update skip locked""",
-			(_iso(now),),
-		)
-		if not found:
+		due = (m.state == "queued") & (m.next_attempt_at.isnull() | (m.next_attempt_at <= _iso(now)))
+		record = _claim(due, m.creation)
+		if record is None or record["name"] in seen:  # each row at most once per run
 			break
-		name = found[0][0]
-		row = _row(frappe.get_doc(DOCTYPE, name))
-		_run(lambda client: dispatch(client, row, now))
-		_save(name, row)
-		frappe.db.commit()
+		seen.add(record["name"])
+		row = _row(record)
+		_run(lambda client, row=row, now=now: dispatch(client, row, now))
+		_save(record["name"], row)
+		_commit_row()
 		runs += 1
 	return runs
 
@@ -175,18 +208,23 @@ def poll_statuses(limit: int = 100) -> int:
 		return 0
 	now = datetime.now(UTC)
 	wait = _settings()["receipt_wait"]
-	names = [r[0] for r in frappe.db.sql(
-		f"""select name from {TABLE} where state = 'accepted' and poll_complete = 0
-		    and oan_final = 0 and (next_poll_at is null or next_poll_at <= %s)
-		    order by next_poll_at limit %s""",
-		(_iso(now), limit),
-	)]
-	for name in names:
-		if not frappe.db.sql(f"select name from {TABLE} where name = %s for update skip locked",
-		                     (name,)):
-			continue
-		row = _row(frappe.get_doc(DOCTYPE, name))
-		_run(lambda client: reconcile(client, row, now, receipt_wait=wait))
-		_save(name, row)
-		frappe.db.commit()
-	return len(names)
+	m = _table()
+	due = (
+		(m.state == "accepted")
+		& (m.poll_complete == 0)
+		& (m.oan_final == 0)
+		& (m.next_poll_at.isnull() | (m.next_poll_at <= _iso(now)))
+	)
+	polled = 0
+	seen: set[str] = set()
+	for _ in range(limit):
+		record = _claim(due, m.next_poll_at)
+		if record is None or record["name"] in seen:  # each row at most once per run
+			break
+		seen.add(record["name"])
+		row = _row(record)
+		_run(lambda client, row=row: reconcile(client, row, now, receipt_wait=wait))
+		_save(record["name"], row)
+		_commit_row()
+		polled += 1
+	return polled

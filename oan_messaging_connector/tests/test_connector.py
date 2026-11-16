@@ -6,6 +6,7 @@ import json
 import unittest
 import uuid
 from datetime import UTC, datetime, timedelta
+from unittest import mock
 
 import frappe
 import httpx
@@ -28,31 +29,60 @@ class FakeOan:
 	def __call__(self, request: httpx.Request) -> httpx.Response:
 		self.requests.append(request)
 		if request.method == "GET":
-			return httpx.Response(200, json={
-				"id": MID, "idempotency_key": "k", "channel": "sms", "purpose": "transactional",
-				"source_reference": "x:y", "status": self.status, "final": self.final,
-				"recipient_masked": "+2519******01", "delivery_receipts_supported": True,
-				"attempts": 1, "created_at": "2026-09-01T05:12:13Z",
-				"updated_at": "2026-09-01T05:12:14Z"})
+			return httpx.Response(
+				200,
+				json={
+					"id": MID,
+					"idempotency_key": "k",
+					"channel": "sms",
+					"purpose": "transactional",
+					"source_reference": "x:y",
+					"status": self.status,
+					"final": self.final,
+					"recipient_masked": "+2519******01",
+					"delivery_receipts_supported": True,
+					"attempts": 1,
+					"created_at": "2026-09-01T05:12:13Z",
+					"updated_at": "2026-09-01T05:12:14Z",
+				},
+			)
 		body = json.loads(request.content)
 		code = self.post.pop(0) if self.post else 200
 		if code in (202, 200):
-			return httpx.Response(code, json={
-				"id": MID, "idempotency_key": request.headers["Idempotency-Key"],
-				"channel": "sms", "status": "accepted",
-				"source_reference": body["source_reference"],
-				"created_at": "2026-09-01T05:12:13Z", "expires_at": body.get("expires_at")})
+			return httpx.Response(
+				code,
+				json={
+					"id": MID,
+					"idempotency_key": request.headers["Idempotency-Key"],
+					"channel": "sms",
+					"status": "accepted",
+					"source_reference": body["source_reference"],
+					"created_at": "2026-09-01T05:12:13Z",
+					"expires_at": body.get("expires_at"),
+				},
+			)
 		return httpx.Response(
 			code,
-			json={"title": "x", "status": code, "errors": [],
-			      "code": "validation_failed" if code == 422 else "service_unavailable"},
-			headers={"content-type": "application/problem+json"})
+			json={
+				"title": "x",
+				"status": code,
+				"errors": [],
+				"code": "validation_failed" if code == 422 else "service_unavailable",
+			},
+			headers={"content-type": "application/problem+json"},
+		)
 
 
 def queue(**kw):
-	base = {"recipient": PHONE, "text": "Test: your request REF-1 was received.",
-	        "purpose": "transactional", "source_reference": f"test:{REF}:received",
-	        "reference_doctype": "User", "reference_name": REF, "event": "received"}
+	base = {
+		"recipient": PHONE,
+		"text": "Test: your request REF-1 was received.",
+		"purpose": "transactional",
+		"source_reference": f"test:{REF}:received",
+		"reference_doctype": "User",
+		"reference_name": REF,
+		"event": "received",
+	}
 	base.update(kw)
 	return api.queue_sms(**base)
 
@@ -60,8 +90,10 @@ def queue(**kw):
 class TestConnector(unittest.TestCase):
 	def setUp(self):
 		frappe.set_user("Administrator")
-		self._conf = {k: frappe.conf.get(k) for k in
-		              ("oan_messaging_enabled", "oan_messaging_base_url", "oan_messaging_token")}
+		self._conf = {
+			k: frappe.conf.get(k)
+			for k in ("oan_messaging_enabled", "oan_messaging_base_url", "oan_messaging_token")
+		}
 		frappe.conf.oan_messaging_enabled = 1
 		frappe.conf.oan_messaging_base_url = "https://oan-messaging.example.invalid"
 		frappe.conf.oan_messaging_token = "oanmsg_" + "t" * 43
@@ -77,10 +109,11 @@ class TestConnector(unittest.TestCase):
 		for k, v in self._conf.items():
 			frappe.conf[k] = v
 		self._clear()
-		frappe.db.commit()
+		frappe.db.commit()  # nosemgrep: frappe-semgrep-rules.rules.frappe-manual-commit -- dispatch commits per row, so cleanup must commit too
 
 	def _clear(self):
-		frappe.db.sql("delete from `tabOAN Message` where reference_name like 'TEST-CONNECTOR-%%'")
+		# Rows refuse deletion through the document API (audit trail); tests clear their own.
+		frappe.db.delete("OAN Message", {"reference_name": ("like", "TEST-CONNECTOR-%")})
 
 	def doc(self, name):
 		return frappe.get_doc("OAN Message", name)
@@ -97,12 +130,24 @@ class TestConnector(unittest.TestCase):
 		self.assertEqual((row.desk_status, row.state), ("Queued", "queued"))
 		self.assertEqual(outbox.dispatch_queued(), 1)
 		row = self.doc(name)
-		self.assertEqual((row.desk_status, row.state, row.oan_message_id),
-		                 ("Submitted", "accepted", MID))
+		self.assertEqual((row.desk_status, row.state, row.oan_message_id), ("Submitted", "accepted", MID))
 		post = self.fake.requests[0]
 		self.assertEqual(post.headers["Idempotency-Key"], row.delivery_id)
 		body = json.loads(post.content)
 		self.assertEqual((body["recipient"], body["purpose"]), (PHONE, "transactional"))
+
+	def test_dispatch_and_poll_claim_rows_with_skip_locked(self):
+		"""Several workers may run the sweep at once: each claim locks one row and skips
+		rows another worker holds."""
+		queue()
+		with mock.patch.object(frappe.db, "sql", wraps=frappe.db.sql) as sql:
+			outbox.dispatch_queued()
+			outbox.poll_statuses()
+		claims = [str(c.args[0]) for c in sql.call_args_list if "FOR UPDATE" in str(c.args[0]).upper()]
+		self.assertGreaterEqual(len(claims), 2)
+		for query in claims:
+			self.assertIn("SKIP LOCKED", query.upper())
+			self.assertIn("LIMIT 1", query.upper())
 
 	def test_uncertain_outcome_retries_later_with_the_same_key(self):
 		self.fake.post = [503, 202]
@@ -115,8 +160,7 @@ class TestConnector(unittest.TestCase):
 		frappe.db.set_value("OAN Message", name, "next_attempt_at", None)
 		outbox.dispatch_queued()
 		self.assertEqual(self.doc(name).state, "accepted")
-		self.assertEqual({r.headers["Idempotency-Key"] for r in self.fake.requests},
-		                 {row.delivery_id})
+		self.assertEqual({r.headers["Idempotency-Key"] for r in self.fake.requests}, {row.delivery_id})
 
 	def test_rejection_fails_visibly_and_is_never_retried(self):
 		self.fake.post = [422]

@@ -4,16 +4,16 @@ A reusable Frappe app that sends SMS from any Frappe service (A2C Credit, Grieva
 Auth, ...) through the **OAN Messaging Service** (contract 3.0.0). It owns the parts every
 caller would otherwise rebuild:
 
-* the **OAN Message** outbox: one row per intended message, with a random UUID4
+- the **OAN Message** outbox: one row per intended message, with a random UUID4
   `delivery_id` used as the Idempotency-Key and never changed;
-* dispatch **after commit**, plus a one-minute safety sweep (`FOR UPDATE SKIP LOCKED`,
+- dispatch **after commit**, plus a one-minute safety sweep (`FOR UPDATE SKIP LOCKED`,
   one commit per row, so it is safe with several workers);
-* status polling into a separate field. 202/200 shows as *Submitted*, never "Sent", and
+- status polling into a separate field. 202/200 shows as _Submitted_, never "Sent", and
   `unknown` is flagged and never resubmitted;
-* the one-SMS-part length check: 160 GSM-7 characters, or 70 if any Amharic character;
-* a daily **purge**: finished rows keep only delivery metadata after a retention period
+- the one-SMS-part length check: 160 GSM-7 characters, or 70 if any Amharic character;
+- a daily **purge**: finished rows keep only delivery metadata after a retention period
   (default 7 days); the text is cleared and the recipient masked;
-* **OAN Messaging Settings**: base URL, caller token (Password), CA bundle, retention.
+- **OAN Messaging Settings**: base URL, caller token (Password), CA bundle, retention.
 
 Status: **trial build, not released**. Licensed under the MIT License, the same as other
 OAN services (see `LICENSE`).
@@ -32,14 +32,15 @@ OAN services (see `LICENSE`).
              reference_doctype=doc.doctype, reference_name=doc.name, event="<event>")
    ```
 
-   * `purpose` is `transactional` or `alert`. `expires_at`, when given, must be
+   - `purpose` is `transactional` or `alert`. `expires_at`, when given, must be
      timezone-aware.
-   * **OTPs are refused.** The outbox stores the text, and an OTP must never be stored.
+   - **OTPs are refused.** The outbox stores the text, and an OTP must never be stored.
      OTP senders send at once with the OAN client instead.
-   * `queue_sms` never sends inline and never raises: if the connector is disabled, the
+   - `queue_sms` never sends inline and never raises: if the connector is disabled, the
      message is invalid, or settings, the database or the queue fail, it returns `None`
      (or the row name, if only the enqueue failed; the sweep then sends it) and writes
      an Error Log entry.
+
 3. Keep the texts and event mapping in the caller app. See A2C's `oan_a2c/oan_messaging/`
    for the pattern: `events.py` holds the templates and mapping, `notify.py` the call
    sites.
@@ -59,13 +60,13 @@ send_sms = "oan_messaging_connector.sms_hook.send_sms"
 
 Why it is only an interim step:
 
-* **No delivery status.** Success means "accepted by OAN"; the caller never learns
+- **No delivery status.** Success means "accepted by OAN"; the caller never learns
   `delivered` or `failed`.
-* **Possible duplicates.** Each call is a new message with its own key. The client
+- **Possible duplicates.** Each call is a new message with its own key. The client
   retries an unclear outcome with that key; if it is still unclear the hook raises, and
   a resend by the caller is a second message.
-* **No outbox.** If OAN is unavailable the send fails at once instead of waiting.
-* **Site-wide.** It replaces Frappe's sender for every app on the site (Auth is on every
+- **No outbox.** If OAN is unavailable the send fails at once instead of waiting.
+- **Site-wide.** It replaces Frappe's sender for every app on the site (Auth is on every
   module site), with one purpose and one expiry for all of them: **Hook Message Purpose**
   (`transactional` or `otp`, default `transactional`) and **Hook Message Expiry
   (minutes)** (default 30; at most 30 for `otp`), or `oan_messaging_hook_purpose` and
@@ -73,11 +74,11 @@ Why it is only an interim step:
 
 What it guarantees:
 
-* It **raises `OanSmsNotSent` on every failure** (connector disabled or not configured,
+- It **raises `OanSmsNotSent` on every failure** (connector disabled or not configured,
   text longer than one SMS part, OAN refusal, no answer) and never falls back to
   Frappe's gateway. Grievance and Auth skip their own "is a gateway configured?" checks
   once a hook exists, so this keeps them failing closed.
-* It stores nothing (safe for OTP text) and writes an **SMS Log** row with masked numbers
+- It stores nothing (safe for OTP text) and writes an **SMS Log** row with masked numbers
   and no text when the doctype exists.
 
 Full guidance, per-module steps and QA cases: handoff guides 03 §7, 12 §6 and 14 §6 in
@@ -111,11 +112,11 @@ Retention: **Clear Message Text After (days)** in the settings (default 7), or
 
 ## Operate
 
-* Desk, **OAN Message** list: filter **Needs Attention** for messages rejected by OAN,
+- Desk, **OAN Message** list: filter **Needs Attention** for messages rejected by OAN,
   reconciliation cases and `unknown` outcomes.
-* `oan_messaging_connector.api.messages_for(doctype, name)` returns the delivery state of
+- `oan_messaging_connector.api.messages_for(doctype, name)` returns the delivery state of
   one business record, for support screens.
-* Rows cannot be deleted; they are the delivery audit trail. After the retention period
+- Rows cannot be deleted; they are the delivery audit trail. After the retention period
   they keep only metadata (status, ids, masked recipient, times).
 
 ## Tests
@@ -128,3 +129,28 @@ bench --site <test-site> run-tests --app oan_messaging_connector
 The tests use an in-process fake OAN API and need no network. `test_sms_hook.py` also
 runs the hook through Frappe's own `_send_sms`, Grievance's SMS delivery logic (with and
 without the hook) and, when `oan_auth_service` is installed, Auth's gateway check.
+
+## Code standard
+
+The app follows the same checks as the other OAN Frappe apps:
+
+- **pre-commit** (`.pre-commit-config.yaml`): file hygiene, ruff import sorting, ruff
+  lint and ruff format (line length 110, tab indentation, settings in `pyproject.toml`),
+  prettier on Markdown, and gitleaks.
+- **CI** (`.github/workflows/linters.yml`) calls the shared Linters workflow of
+  `oan_auth_service`: conventional commit titles (`feat:`, `fix:`, `refactor:`, ...),
+  pre-commit, Semgrep (Frappe's rules, Python correctness and the shared OAN rules) and
+  pip-audit.
+- Database access uses the Frappe query builder; there is no hand-written SQL. Workers
+  claim one due row at a time with `FOR UPDATE SKIP LOCKED` and commit after each row;
+  those commits are marked and justified in the code.
+- `oan_messaging_connector/vendor/` is copied unchanged from `oan_messaging_services`
+  (`examples/`) except for relative imports, and is excluded from ruff here: it is
+  linted and tested in that repository.
+
+Run the checks locally:
+
+```
+pre-commit install            # once
+pre-commit run --all-files
+```
