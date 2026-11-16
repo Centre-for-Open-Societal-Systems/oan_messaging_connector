@@ -85,7 +85,7 @@ class TestSmsHook(unittest.TestCase):
 		if self._has_log:
 			for name in set(frappe.get_all("SMS Log", pluck="name")) - self._logs_before:
 				frappe.delete_doc("SMS Log", name, force=True, ignore_permissions=True)
-		frappe.db.commit()
+		frappe.db.commit()  # nosemgrep: frappe-semgrep-rules.rules.frappe-manual-commit -- dispatch commits per row, so cleanup must commit too
 
 	def _new_logs(self):
 		if not self._has_log:

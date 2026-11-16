@@ -43,8 +43,9 @@ class InvalidMessage(ValueError):
 	pass
 
 
-def validate(recipient: str, text: str, purpose: str, source_reference: str,
-             expires_at: datetime | None) -> None:
+def validate(
+	recipient: str, text: str, purpose: str, source_reference: str, expires_at: datetime | None
+) -> None:
 	if not recipient or not recipient.strip():
 		raise InvalidMessage("recipient is empty")
 	if purpose == "otp":
@@ -76,13 +77,19 @@ def queue_sms(
 	Never raises: any failure is logged and the caller's business action goes on.
 	"""
 	try:
-		return _queue_sms(recipient=recipient, text=text, purpose=purpose,
-		                  source_reference=source_reference,
-		                  reference_doctype=reference_doctype, reference_name=reference_name,
-		                  event=event, language=language, expires_at=expires_at)
+		return _queue_sms(
+			recipient=recipient,
+			text=text,
+			purpose=purpose,
+			source_reference=source_reference,
+			reference_doctype=reference_doctype,
+			reference_name=reference_name,
+			event=event,
+			language=language,
+			expires_at=expires_at,
+		)
 	except Exception as exc:  # never break the caller's business action
-		_log(f"OAN SMS not queued ({reference_doctype} {reference_name} {event}): "
-		     f"{type(exc).__name__}")
+		_log(f"OAN SMS not queued ({reference_doctype} {reference_name} {event}): {type(exc).__name__}")
 		return None
 
 
@@ -93,8 +100,18 @@ def _log(message: str) -> None:
 		pass
 
 
-def _queue_sms(*, recipient, text, purpose, source_reference, reference_doctype,
-               reference_name, event, language, expires_at) -> str | None:
+def _queue_sms(
+	*,
+	recipient,
+	text,
+	purpose,
+	source_reference,
+	reference_doctype,
+	reference_name,
+	event,
+	language,
+	expires_at,
+) -> str | None:
 	if not enabled():
 		return None
 	try:
@@ -108,13 +125,24 @@ def _queue_sms(*, recipient, text, purpose, source_reference, reference_doctype,
 		return None
 	row = OutboxRow(
 		delivery_id="",  # set by OAN Message.before_insert (UUID4)
-		recipient=recipient.strip(), text=text, source_reference=source_reference,
-		purpose=purpose, expires_at=expires_at, first_submitted_at=now,
+		recipient=recipient.strip(),
+		text=text,
+		source_reference=source_reference,
+		purpose=purpose,
+		expires_at=expires_at,
+		first_submitted_at=now,
 	)
 	values: dict[str, Any] = record_for_insert(row)
-	values.update({"doctype": DOCTYPE, "reference_doctype": reference_doctype,
-	               "reference_name": reference_name, "event": event,
-	               "language": language, "desk_status": "Queued"})
+	values.update(
+		{
+			"doctype": DOCTYPE,
+			"reference_doctype": reference_doctype,
+			"reference_name": reference_name,
+			"event": event,
+			"language": language,
+			"desk_status": "Queued",
+		}
+	)
 	values.pop("delivery_id")
 	doc = frappe.get_doc(values)
 	# The reference is informational: it may be a record created in this same
@@ -126,12 +154,12 @@ def _queue_sms(*, recipient, text, purpose, source_reference, reference_doctype,
 		doc.insert(ignore_permissions=True)
 	except Exception as exc:  # never break the caller's business action
 		frappe.db.rollback(save_point=savepoint)
-		_log(f"OAN SMS not queued ({reference_doctype} {reference_name} {event}): "
-		     f"{type(exc).__name__}")
+		_log(f"OAN SMS not queued ({reference_doctype} {reference_name} {event}): {type(exc).__name__}")
 		return None
 	try:
-		frappe.enqueue("oan_messaging_connector.outbox.dispatch_queued", queue="short",
-		               enqueue_after_commit=True)
+		frappe.enqueue(
+			"oan_messaging_connector.outbox.dispatch_queued", queue="short", enqueue_after_commit=True
+		)
 	except Exception as exc:  # the one-minute sweep still dispatches the row
 		_log(f"OAN SMS queued but not enqueued ({doc.name}): {type(exc).__name__}")
 	return doc.name
