@@ -7,6 +7,11 @@ app_license = "MIT"
 
 # Every caller app (A2C, Grievance, DA, Auth, ...) installs this app and calls
 # oan_messaging_connector.api.queue_sms(...) from its own business events.
+#
+# No send_sms hook is registered here on purpose. A module that still sends through
+# Frappe's built-in SMS sender may opt in from its own hooks.py:
+#     send_sms = "oan_messaging_connector.sms_hook.send_sms"
+# Explicit queue_sms calls remain the preferred integration (see README).
 
 scheduler_events = {
 	"cron": {
