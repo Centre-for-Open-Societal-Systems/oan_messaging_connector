@@ -11,7 +11,9 @@ caller would otherwise rebuild:
 * status polling into a separate field. 202/200 shows as *Submitted*, never "Sent", and
   `unknown` is flagged and never resubmitted;
 * the one-SMS-part length check: 160 GSM-7 characters, or 70 if any Amharic character;
-* **OAN Messaging Settings**: base URL, caller token (Password), CA bundle.
+* a daily **purge**: finished rows keep only delivery metadata after a retention period
+  (default 7 days); the text is cleared and the recipient masked;
+* **OAN Messaging Settings**: base URL, caller token (Password), CA bundle, retention.
 
 Status: **trial build, not released**. Licensed under the MIT License, the same as other
 OAN services (see `LICENSE`).
@@ -30,11 +32,14 @@ OAN services (see `LICENSE`).
              reference_doctype=doc.doctype, reference_name=doc.name, event="<event>")
    ```
 
-   * `purpose` is `otp`, `transactional` or `alert`. An `otp` needs a timezone-aware
-     `expires_at`.
-   * `queue_sms` never sends inline and never raises because of messaging: if the
-     connector is disabled or the message is invalid, it returns `None` and writes an
-     Error Log entry.
+   * `purpose` is `transactional` or `alert`. `expires_at`, when given, must be
+     timezone-aware.
+   * **OTPs are refused.** The outbox stores the text, and an OTP must never be stored.
+     OTP senders send at once with the OAN client instead.
+   * `queue_sms` never sends inline and never raises: if the connector is disabled, the
+     message is invalid, or settings, the database or the queue fail, it returns `None`
+     (or the row name, if only the enqueue failed; the sweep then sends it) and writes
+     an Error Log entry.
 3. Keep the texts and event mapping in the caller app. See A2C's `oan_a2c/oan_messaging/`
    for the pattern: `events.py` holds the templates and mapping, `notify.py` the call
    sites.
@@ -59,7 +64,11 @@ bench --site <site> set-config oan_messaging_token <token from the OAN operator>
 bench --site <site> set-config oan_messaging_ca_bundle /path/to/ca.pem   # only for a private CA
 ```
 
-The scheduler must be running: `bench --site <site> enable-scheduler`.
+The scheduler and a worker for the `short` queue must be running:
+`bench --site <site> enable-scheduler` and `bench worker --queue short,default`.
+
+Retention: **Clear Message Text After (days)** in the settings (default 7), or
+`oan_messaging_content_retention_days` in `site_config.json`.
 
 ## Operate
 
@@ -67,7 +76,8 @@ The scheduler must be running: `bench --site <site> enable-scheduler`.
   reconciliation cases and `unknown` outcomes.
 * `oan_messaging_connector.api.messages_for(doctype, name)` returns the delivery state of
   one business record, for support screens.
-* Rows cannot be deleted; they are the delivery audit trail.
+* Rows cannot be deleted; they are the delivery audit trail. After the retention period
+  they keep only metadata (status, ids, masked recipient, times).
 
 ## Tests
 

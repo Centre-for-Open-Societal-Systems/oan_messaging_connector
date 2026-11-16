@@ -152,20 +152,75 @@ class TestConnector(unittest.TestCase):
 		self.assertIsNone(queue(text=too_long))
 		self.assertIsNone(queue(text="ቅሬታ " * 20))  # Amharic: 70 characters max
 		self.assertIsNone(queue(purpose="broadcast"))
-		self.assertIsNone(queue(purpose="otp"))  # otp needs expires_at
+		otp_exp = datetime.now(UTC) + timedelta(minutes=5)
+		self.assertIsNone(queue(purpose="otp", expires_at=otp_exp))  # OTPs are never stored
 		self.assertIsNone(queue(recipient=""))
 		self.assertIsNone(queue(source_reference="bad reference"))
 		past = datetime.now(UTC) - timedelta(minutes=1)
-		self.assertIsNone(queue(purpose="otp", expires_at=past))
+		self.assertIsNone(queue(purpose="alert", expires_at=past))
 
-	def test_otp_keeps_its_own_deadline(self):
-		exp = datetime.now(UTC) + timedelta(minutes=5)
-		name = queue(purpose="otp", expires_at=exp, text="Code 123456. It expires in 5 minutes.")
+	def test_message_keeps_its_own_deadline(self):
+		exp = datetime.now(UTC) + timedelta(hours=5)
+		name = queue(purpose="alert", expires_at=exp, text="Visit V-1 is today at 14:00.")
 		outbox.dispatch_queued()
 		body = json.loads(self.fake.requests[0].content)
-		self.assertEqual(datetime.fromisoformat(body["expires_at"].replace("Z", "+00:00")),
-		                 exp.replace(microsecond=exp.microsecond))
-		self.assertEqual(self.doc(name).purpose, "otp")
+		self.assertEqual(datetime.fromisoformat(body["expires_at"].replace("Z", "+00:00")), exp)
+		self.assertEqual(self.doc(name).purpose, "alert")
+
+	def test_otp_is_never_stored(self):
+		before = frappe.db.count("OAN Message")
+		exp = datetime.now(UTC) + timedelta(minutes=5)
+		self.assertIsNone(queue(purpose="otp", expires_at=exp, text="Code 123456."))
+		self.assertEqual(frappe.db.count("OAN Message"), before)
+
+	def test_settings_failure_does_not_raise(self):
+		original = api.enabled
+		api.enabled = lambda: (_ for _ in ()).throw(RuntimeError("cache down"))
+		try:
+			self.assertIsNone(queue())
+		finally:
+			api.enabled = original
+
+	def test_enqueue_failure_keeps_the_row_for_the_sweep(self):
+		original = frappe.enqueue
+		frappe.enqueue = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("redis down"))
+		try:
+			name = queue()
+		finally:
+			frappe.enqueue = original
+		self.assertTrue(name)
+		self.assertEqual(self.doc(name).state, "queued")
+		self.assertEqual(outbox.dispatch_queued(), 1)
+
+	def test_purge_clears_content_of_finished_rows_only(self):
+		self.fake.status, self.fake.final = "delivered", True
+		done = queue()
+		outbox.dispatch_queued()
+		frappe.db.set_value("OAN Message", done, "next_poll_at", None)
+		outbox.poll_statuses()
+		waiting = queue(reference_name="TEST-CONNECTOR-2")  # still queued
+		recent = queue(reference_name="TEST-CONNECTOR-3")
+		outbox.dispatch_queued()  # recent and waiting become submitted, polling open
+		frappe.db.set_value("OAN Message", waiting, {"state": "queued"})
+		old = datetime.now() - timedelta(days=30)
+		for n in (done, waiting, recent):
+			frappe.db.sql("update `tabOAN Message` set modified = %s where name = %s", (old, n))
+		self.assertEqual(outbox.purge_content(), 1)
+		row = self.doc(done)
+		self.assertEqual((row.text, row.recipient), ("", "********01"))
+		self.assertEqual((row.oan_status, row.delivery_id != ""), ("delivered", True))
+		self.assertTrue(self.doc(waiting).text)  # queued: kept for sending
+		self.assertTrue(self.doc(recent).text)  # submitted, still polling: kept
+		self.assertEqual(outbox.purge_content(), 0)  # idempotent
+
+	def test_recent_finished_rows_keep_content(self):
+		self.fake.status, self.fake.final = "delivered", True
+		name = queue()
+		outbox.dispatch_queued()
+		frappe.db.set_value("OAN Message", name, "next_poll_at", None)
+		outbox.poll_statuses()
+		self.assertEqual(outbox.purge_content(), 0)
+		self.assertTrue(self.doc(name).text)
 
 	def test_messages_for_lists_delivery_state(self):
 		queue()

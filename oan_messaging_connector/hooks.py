@@ -17,4 +17,6 @@ scheduler_events = {
 			"oan_messaging_connector.outbox.poll_statuses",
 		],
 	},
+	# Privacy: clear text and mask recipients of finished rows after the retention period.
+	"daily": ["oan_messaging_connector.outbox.purge_content"],
 }

@@ -5,7 +5,7 @@
  "engine": "InnoDB",
  "index_web_pages_for_search": 0,
  "links": [],
- "modified": "2026-11-15 12:00:00.000000",
+ "modified": "2026-11-16 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "OAN Messaging Connector",
  "owner": "Administrator",
@@ -20,7 +20,8 @@
   "token",
   "ca_bundle",
   "max_attempts",
-  "receipt_wait_days"
+  "receipt_wait_days",
+  "content_retention_days"
  ],
  "fields": [
   {
@@ -58,6 +59,13 @@
    "fieldtype": "Int",
    "label": "Stop Polling SMS After (days)",
    "default": "7"
+  },
+  {
+   "fieldname": "content_retention_days",
+   "fieldtype": "Int",
+   "label": "Clear Message Text After (days)",
+   "default": "7",
+   "description": "Finished rows keep only delivery metadata after this many days: the text is cleared and the recipient masked. site_config oan_messaging_content_retention_days overrides it."
   }
  ],
  "permissions": [

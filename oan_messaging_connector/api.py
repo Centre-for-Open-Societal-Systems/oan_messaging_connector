@@ -32,7 +32,10 @@ from .outbox import DOCTYPE, enabled, record_for_insert
 from .sms import fits_one_sms
 from .vendor.outbox_dispatch import OutboxRow
 
-PURPOSES = frozenset({"otp", "transactional", "alert"})  # broadcast: not in the pilot
+# OTPs are never queued here: the outbox stores the text, and an OTP must not be stored.
+# OTP senders send at once with the OAN client (see the handoff guide "OTP senders").
+# broadcast: not in the pilot.
+PURPOSES = frozenset({"transactional", "alert"})
 _SOURCE_REF = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
 
 
@@ -44,6 +47,8 @@ def validate(recipient: str, text: str, purpose: str, source_reference: str,
              expires_at: datetime | None) -> None:
 	if not recipient or not recipient.strip():
 		raise InvalidMessage("recipient is empty")
+	if purpose == "otp":
+		raise InvalidMessage("otp is not queued through the outbox; send it at once with the OAN client")
 	if purpose not in PURPOSES:
 		raise InvalidMessage(f"purpose must be one of {sorted(PURPOSES)}")
 	if not text or not fits_one_sms(text):
@@ -52,8 +57,6 @@ def validate(recipient: str, text: str, purpose: str, source_reference: str,
 		raise InvalidMessage("source_reference must match [A-Za-z0-9._:-]{1,128}")
 	if expires_at is not None and expires_at.tzinfo is None:
 		raise InvalidMessage("expires_at must be timezone-aware")
-	if purpose == "otp" and expires_at is None:
-		raise InvalidMessage("an otp message needs expires_at")
 
 
 def queue_sms(
@@ -68,19 +71,40 @@ def queue_sms(
 	language: str | None = None,
 	expires_at: datetime | None = None,
 ) -> str | None:
-	"""Queue one SMS; returns the OAN Message name, or None (disabled or invalid)."""
+	"""Queue one SMS; returns the OAN Message name, or None (disabled, invalid or failed).
+
+	Never raises: any failure is logged and the caller's business action goes on.
+	"""
+	try:
+		return _queue_sms(recipient=recipient, text=text, purpose=purpose,
+		                  source_reference=source_reference,
+		                  reference_doctype=reference_doctype, reference_name=reference_name,
+		                  event=event, language=language, expires_at=expires_at)
+	except Exception as exc:  # never break the caller's business action
+		_log(f"OAN SMS not queued ({reference_doctype} {reference_name} {event}): "
+		     f"{type(exc).__name__}")
+		return None
+
+
+def _log(message: str) -> None:
+	try:
+		frappe.log_error(message, "OAN Messaging")
+	except Exception:  # logging must not raise either
+		pass
+
+
+def _queue_sms(*, recipient, text, purpose, source_reference, reference_doctype,
+               reference_name, event, language, expires_at) -> str | None:
 	if not enabled():
 		return None
 	try:
 		validate(recipient or "", text, purpose, source_reference, expires_at)
 	except InvalidMessage as exc:
-		frappe.log_error(f"OAN SMS not queued ({reference_doctype} {reference_name} {event}): "
-		                 f"{exc}", "OAN Messaging")
+		_log(f"OAN SMS not queued ({reference_doctype} {reference_name} {event}): {exc}")
 		return None
 	now = datetime.now(UTC)
 	if expires_at is not None and expires_at <= now:
-		frappe.log_error(f"OAN SMS not queued ({reference_name} {event}): already expired",
-		                 "OAN Messaging")
+		_log(f"OAN SMS not queued ({reference_name} {event}): already expired")
 		return None
 	row = OutboxRow(
 		delivery_id="",  # set by OAN Message.before_insert (UUID4)
@@ -102,11 +126,14 @@ def queue_sms(
 		doc.insert(ignore_permissions=True)
 	except Exception as exc:  # never break the caller's business action
 		frappe.db.rollback(save_point=savepoint)
-		frappe.log_error(f"OAN SMS not queued ({reference_doctype} {reference_name} {event}): "
-		                 f"{type(exc).__name__}", "OAN Messaging")
+		_log(f"OAN SMS not queued ({reference_doctype} {reference_name} {event}): "
+		     f"{type(exc).__name__}")
 		return None
-	frappe.enqueue("oan_messaging_connector.outbox.dispatch_queued", queue="short",
-	               enqueue_after_commit=True)
+	try:
+		frappe.enqueue("oan_messaging_connector.outbox.dispatch_queued", queue="short",
+		               enqueue_after_commit=True)
+	except Exception as exc:  # the one-minute sweep still dispatches the row
+		_log(f"OAN SMS queued but not enqueued ({doc.name}): {type(exc).__name__}")
 	return doc.name
 
 
