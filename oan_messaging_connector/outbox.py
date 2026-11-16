@@ -8,6 +8,11 @@
   (``outbox_dispatch.reconcile``). It never resends; ``unknown`` sets
   ``needs_attention``. SMS polling stops after ``receipt_wait_days``.
 
+* ``purge_content`` (daily) clears the message text and masks the recipient of rows
+  that no longer need them (no longer queued, and polling finished or never needed),
+  once they are older than ``content_retention_days`` (default 7). Delivery metadata
+  stays as the audit trail.
+
 Configuration: **OAN Messaging Settings**. ``site_config.json`` keys
 ``oan_messaging_enabled``, ``oan_messaging_base_url``, ``oan_messaging_token`` and
 ``oan_messaging_ca_bundle`` override it, so a deployment can inject the token from its secret store.
@@ -22,6 +27,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import frappe
+from frappe.utils import now_datetime
 
 from .vendor.oan_client import ClientConfig, OanClient, Secret
 from .vendor.outbox_dispatch import OutboxRow, dispatch, reconcile
@@ -98,6 +104,45 @@ def _save(name: str, row: OutboxRow) -> None:
 	rec.pop("delivery_id")  # never rewritten
 	rec["desk_status"] = DESK_STATUS.get(row.state, "Failed")
 	frappe.db.set_value(DOCTYPE, name, rec, update_modified=True)
+
+
+def _retention_days() -> int:
+	conf = frappe.conf.get("oan_messaging_content_retention_days")
+	if conf is None:
+		conf = frappe.db.get_single_value(SETTINGS, "content_retention_days")
+	try:
+		return max(1, int(conf or 7))
+	except (TypeError, ValueError):
+		return 7
+
+
+def mask_recipient(recipient: str | None) -> str:
+	"""Keep only the last two digits, e.g. ``********01``."""
+	value = (recipient or "").strip()
+	return "*" * max(0, len(value) - 2) + value[-2:] if value else ""
+
+
+def purge_content(limit: int = 500) -> int:
+	"""Clear text and mask the recipient of finished rows past the retention period.
+
+	Runs whether or not the connector is enabled (privacy). Queued rows, and submitted
+	rows still being polled, keep their content. Returns the number of rows purged.
+	"""
+	# ``modified`` is stored in the site's time zone, like now_datetime().
+	cutoff = now_datetime() - timedelta(days=_retention_days())
+	rows = frappe.db.sql(
+		f"""select name, recipient from {TABLE}
+		    where ifnull(text, '') != '' and state != 'queued'
+		      and (poll_complete = 1 or state != 'accepted')
+		      and modified < %s
+		    order by modified limit %s""",
+		(cutoff, limit),
+	)
+	for name, recipient in rows:
+		frappe.db.set_value(DOCTYPE, name, {"text": "", "recipient": mask_recipient(recipient)},
+		                    update_modified=False)
+	frappe.db.commit()
+	return len(rows)
 
 
 def dispatch_queued(limit: int = 50) -> int:
