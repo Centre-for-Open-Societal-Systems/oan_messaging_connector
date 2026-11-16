@@ -5,7 +5,7 @@
  "engine": "InnoDB",
  "index_web_pages_for_search": 0,
  "links": [],
- "modified": "2026-11-16 12:00:00.000000",
+ "modified": "2026-11-16 18:00:00.000000",
  "modified_by": "Administrator",
  "module": "OAN Messaging Connector",
  "owner": "Administrator",
@@ -21,7 +21,10 @@
   "ca_bundle",
   "max_attempts",
   "receipt_wait_days",
-  "content_retention_days"
+  "content_retention_days",
+  "send_sms_hook_section",
+  "hook_purpose",
+  "hook_expiry_minutes"
  ],
  "fields": [
   {
@@ -66,6 +69,27 @@
    "label": "Clear Message Text After (days)",
    "default": "7",
    "description": "Finished rows keep only delivery metadata after this many days: the text is cleared and the recipient masked. site_config oan_messaging_content_retention_days overrides it."
+  },
+  {
+   "fieldname": "send_sms_hook_section",
+   "fieldtype": "Section Break",
+   "label": "Frappe send_sms Hook (only for apps that register it)",
+   "description": "Used only when an app on this site registers send_sms = \"oan_messaging_connector.sms_hook.send_sms\" in its hooks.py. New features should call queue_sms instead."
+  },
+  {
+   "fieldname": "hook_purpose",
+   "fieldtype": "Select",
+   "label": "Hook Message Purpose",
+   "options": "transactional\notp",
+   "default": "transactional",
+   "description": "otp for a site whose Frappe SMS are one-time codes (Auth). site_config oan_messaging_hook_purpose overrides it."
+  },
+  {
+   "fieldname": "hook_expiry_minutes",
+   "fieldtype": "Int",
+   "label": "Hook Message Expiry (minutes)",
+   "default": "30",
+   "description": "OAN drops the SMS if it cannot be sent within this time. At most 30 for otp (set it to the code's lifetime), at most 10080 otherwise. site_config oan_messaging_hook_expiry_minutes overrides it."
   }
  ],
  "permissions": [

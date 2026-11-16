@@ -44,6 +44,45 @@ OAN services (see `LICENSE`).
    for the pattern: `events.py` holds the templates and mapping, `notify.py` the call
    sites.
 
+## Existing Frappe SMS senders: the `send_sms` hook (supported, not preferred)
+
+**Use explicit `queue_sms` calls** (above) for every new SMS. For modules that already
+send through Frappe's built-in sender (`frappe.core.doctype.sms_settings.sms_settings._send_sms`,
+used today by Grievance and Auth), the connector also provides a Frappe `send_sms` hook,
+so that sender goes to OAN before the module rewrites its send path.
+
+It is **off unless a module opts in** with one line in its own `hooks.py`:
+
+```python
+send_sms = "oan_messaging_connector.sms_hook.send_sms"
+```
+
+Why it is only an interim step:
+
+* **No delivery status.** Success means "accepted by OAN"; the caller never learns
+  `delivered` or `failed`.
+* **Possible duplicates.** Each call is a new message with its own key. The client
+  retries an unclear outcome with that key; if it is still unclear the hook raises, and
+  a resend by the caller is a second message.
+* **No outbox.** If OAN is unavailable the send fails at once instead of waiting.
+* **Site-wide.** It replaces Frappe's sender for every app on the site (Auth is on every
+  module site), with one purpose and one expiry for all of them: **Hook Message Purpose**
+  (`transactional` or `otp`, default `transactional`) and **Hook Message Expiry
+  (minutes)** (default 30; at most 30 for `otp`), or `oan_messaging_hook_purpose` and
+  `oan_messaging_hook_expiry_minutes` in `site_config.json`.
+
+What it guarantees:
+
+* It **raises `OanSmsNotSent` on every failure** (connector disabled or not configured,
+  text longer than one SMS part, OAN refusal, no answer) and never falls back to
+  Frappe's gateway. Grievance and Auth skip their own "is a gateway configured?" checks
+  once a hook exists, so this keeps them failing closed.
+* It stores nothing (safe for OTP text) and writes an **SMS Log** row with masked numbers
+  and no text when the doctype exists.
+
+Full guidance, per-module steps and QA cases: handoff guides 03 §7, 12 §6 and 14 §6 in
+the `oan_messaging_services` repository.
+
 ## Configure a site
 
 The OAN operator registers the caller and issues its token:
@@ -86,4 +125,6 @@ bench --site <test-site> set-config allow_tests true
 bench --site <test-site> run-tests --app oan_messaging_connector
 ```
 
-The tests use an in-process fake OAN API and need no network.
+The tests use an in-process fake OAN API and need no network. `test_sms_hook.py` also
+runs the hook through Frappe's own `_send_sms`, Grievance's SMS delivery logic (with and
+without the hook) and, when `oan_auth_service` is installed, Auth's gateway check.
