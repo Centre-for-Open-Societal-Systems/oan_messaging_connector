@@ -136,6 +136,14 @@ class TestConnector(unittest.TestCase):
 		body = json.loads(post.content)
 		self.assertEqual((body["recipient"], body["purpose"]), (PHONE, "transactional"))
 
+	def test_recipient_must_be_an_ethiopian_mobile(self):
+		for bad in ("12345", "+254712345678", "0812345678", "09000007O1"):
+			self.assertIsNone(queue(recipient=bad), bad)
+		name = queue(recipient="0900-000 701")
+		self.assertEqual(self.doc(name).recipient, PHONE)  # separators removed
+		for good in ("+251900000702", "251700000703", "0700000704"):
+			self.assertIsNotNone(queue(recipient=good), good)
+
 	def test_dispatch_and_poll_claim_rows_with_skip_locked(self):
 		"""Several workers may run the sweep at once: each claim locks one row and skips
 		rows another worker holds."""
