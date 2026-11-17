@@ -29,7 +29,7 @@ from typing import Any
 import frappe
 
 from .outbox import DOCTYPE, enabled, record_for_insert
-from .sms import fits_one_sms
+from .sms import clean_mobile, fits_one_sms
 from .vendor.outbox_dispatch import OutboxRow
 
 # OTPs are never queued here: the outbox stores the text, and an OTP must not be stored.
@@ -48,6 +48,8 @@ def validate(
 ) -> None:
 	if not recipient or not recipient.strip():
 		raise InvalidMessage("recipient is empty")
+	if clean_mobile(recipient) is None:
+		raise InvalidMessage("recipient is not an Ethiopian mobile number (09/07 series)")
 	if purpose == "otp":
 		raise InvalidMessage("otp is not queued through the outbox; send it at once with the OAN client")
 	if purpose not in PURPOSES:
@@ -125,7 +127,7 @@ def _queue_sms(
 		return None
 	row = OutboxRow(
 		delivery_id="",  # set by OAN Message.before_insert (UUID4)
-		recipient=recipient.strip(),
+		recipient=clean_mobile(recipient),
 		text=text,
 		source_reference=source_reference,
 		purpose=purpose,

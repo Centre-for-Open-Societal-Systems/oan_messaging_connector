@@ -74,7 +74,12 @@ class TestSendNow(unittest.TestCase):
 		self.assertEqual({r.headers["Idempotency-Key"] for r in self.fake.requests}, {self.key})
 
 	def test_invalid_messages_are_refused_before_sending(self):
-		for kw in ({"text": "x" * 161}, {"purpose": "otp", "expires_at": None}, {"idempotency_key": "short"}):
+		for kw in (
+			{"text": "x" * 161},
+			{"purpose": "otp", "expires_at": None},
+			{"idempotency_key": "short"},
+			{"recipient": "+254712345678"},
+		):
 			with self.assertRaises(ValueError, msg=kw):
 				self.send(**kw)
 		self.assertEqual(self.fake.requests, [])

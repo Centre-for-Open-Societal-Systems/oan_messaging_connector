@@ -20,7 +20,8 @@ Uses the site's OAN Messaging Settings (or ``site_config.json``). The OAN client
 an uncertain outcome with the same key up to **HTTP Attempts**. Errors:
 
 * ``NotConfigured``: the connector is disabled or not configured on this site.
-* ``ValueError``: the message itself is invalid (key, reference, purpose, expiry, length).
+* ``ValueError``: the message itself is invalid (recipient, key, reference, purpose,
+  expiry, length).
 * ``OanRejected`` (and ``OanConflict``): OAN refused it. Never retry.
 * ``OanUncertain`` (and ``OanRetryDeferred``): OAN may already hold it. Retry later only
   with exactly the same arguments, or give up.
@@ -34,7 +35,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from .outbox import _run, enabled
-from .sms import fits_one_sms
+from .sms import clean_mobile, fits_one_sms
 from .vendor.oan_client import (
 	OanClientError,
 	OanConflict,
@@ -86,9 +87,12 @@ def send_sms_now(
 		raise NotConfigured("OAN Messaging is not enabled or not configured on this site")
 	if not text or not fits_one_sms(text):
 		raise ValueError("text is empty or does not fit one SMS part")
+	phone = clean_mobile(recipient)
+	if phone is None:
+		raise ValueError("recipient is not an Ethiopian mobile number (09/07 series)")
 	delivery = SmsDelivery(
 		idempotency_key=idempotency_key,
-		recipient=recipient,
+		recipient=phone,
 		text=text,
 		source_reference=source_reference,
 		purpose=purpose,
