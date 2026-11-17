@@ -17,7 +17,8 @@ def fits_one_sms(text: str) -> bool:
 	return len(text.encode("utf-16-le")) // 2 <= 70
 
 
-#: The recipient forms OAN accepts (its ``ET_MOBILE_INPUT_PATTERN``).
+#: The recipient forms OAN accepts (its ``ET_MOBILE_INPUT_PATTERN``). ``[0-9]``, not ``\d``:
+#: in Python ``\d`` also matches non-ASCII digits.
 ET_MOBILE = re.compile(r"^(\+?251[79][0-9]{8}|0[79][0-9]{8})$")
 _SEPARATORS = re.compile(r"[\s\-().]")
 
