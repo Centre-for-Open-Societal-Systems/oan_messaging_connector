@@ -42,9 +42,9 @@ from datetime import UTC, datetime, timedelta
 
 import frappe
 
-from .outbox import SETTINGS, _run, enabled, mask_recipient
+from .outbox import SETTINGS, enabled, mask_recipient
+from .send_now import OanClientError, send_sms_now
 from .sms import fits_one_sms
-from .vendor.oan_client import OanClientError, SmsDelivery
 
 HOOK_PURPOSES = frozenset({"transactional", "otp"})
 #: OAN's ceilings: an OTP may live at most 30 minutes, anything else at most 7 days.
@@ -80,17 +80,16 @@ def send_sms(
 	failures: list[str] = []
 	for recipient in recipients:
 		now = datetime.now(UTC)
-		delivery = SmsDelivery(
-			idempotency_key=str(uuid.uuid4()),
-			recipient=recipient,
-			text=text,
-			source_reference=f"frappe:send_sms:{uuid.uuid4().hex[:12]}",
-			purpose=purpose,
-			expires_at=now + timedelta(minutes=minutes),
-			first_submitted_at=now,
-		)
 		try:
-			_run(lambda client, d=delivery: client.submit(d))
+			send_sms_now(
+				idempotency_key=str(uuid.uuid4()),
+				recipient=recipient,
+				text=text,
+				source_reference=f"frappe:send_sms:{uuid.uuid4().hex[:12]}",
+				purpose=purpose,
+				expires_at=now + timedelta(minutes=minutes),
+				first_submitted_at=now,
+			)
 		except OanClientError as exc:
 			# The client's messages never include numbers, text or credentials.
 			failures.append(type(exc).__name__)
