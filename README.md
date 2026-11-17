@@ -35,7 +35,8 @@ OAN services (see `LICENSE`).
    - `purpose` is `transactional` or `alert`. `expires_at`, when given, must be
      timezone-aware.
    - **OTPs are refused.** The outbox stores the text, and an OTP must never be stored.
-     OTP senders send at once with the OAN client instead.
+     OTP senders send at once with `oan_messaging_connector.send_now.send_sms_now`
+     instead, from a job that holds the code only in its arguments (see the Auth kit).
    - `queue_sms` never sends inline and never raises: if the connector is disabled, the
      message is invalid, or settings, the database or the queue fail, it returns `None`
      (or the row name, if only the enqueue failed; the sweep then sends it) and writes
