@@ -179,6 +179,13 @@ class TestSmsHook(unittest.TestCase):
 			self.assertNotIn("123456", error)
 			self.assertNotIn(PHONE, error)
 
+	def test_settings_require_https(self):
+		settings = frappe.get_single("OAN Messaging Settings")
+		settings.enabled = 1
+		settings.base_url = "http://oan-messaging.example.invalid"
+		with self.assertRaises(frappe.ValidationError):
+			settings.save(ignore_permissions=True)
+
 	def test_settings_reject_otp_expiry_over_30(self):
 		settings = frappe.get_single("OAN Messaging Settings")
 		settings.hook_purpose = "otp"
