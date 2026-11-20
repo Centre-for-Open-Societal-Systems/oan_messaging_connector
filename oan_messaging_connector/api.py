@@ -4,8 +4,8 @@
 
     queue_sms(
         recipient=doc.phone_number,
-        text=rendered_text,                       # one SMS part, see sms.fits_one_sms
-        purpose="transactional",                  # otp | transactional | alert
+        text=rendered_text,                       # at most sms.MAX_PARTS parts, see sms.sms_parts
+        purpose="transactional",                  # transactional | alert | broadcast
         source_reference=f"a2c:{doc.name}:application_submitted",
         reference_doctype=doc.doctype, reference_name=doc.name,
         event="application_submitted",
@@ -29,13 +29,14 @@ from typing import Any
 import frappe
 
 from .outbox import DOCTYPE, enabled, record_for_insert
-from .sms import clean_mobile, fits_one_sms
+from .sms import MAX_PARTS, clean_mobile, sms_parts
 from .vendor.outbox_dispatch import OutboxRow
 
 # OTPs are never queued here: the outbox stores the text, and an OTP must not be stored.
 # OTP senders send at once with the OAN client (see the handoff guide "OTP senders").
-# broadcast: not in the pilot.
-PURPOSES = frozenset({"transactional", "alert"})
+# broadcast: OAN accepts it once its broadcast_enabled setting is on (SMS-03); until then
+# OAN refuses it (purpose_not_permitted) and the row shows the refusal.
+PURPOSES = frozenset({"transactional", "alert", "broadcast"})
 _SOURCE_REF = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
 
 
@@ -54,8 +55,8 @@ def validate(
 		raise InvalidMessage("otp is not queued through the outbox; send it at once with the OAN client")
 	if purpose not in PURPOSES:
 		raise InvalidMessage(f"purpose must be one of {sorted(PURPOSES)}")
-	if not text or not fits_one_sms(text):
-		raise InvalidMessage("text is empty or does not fit one SMS part")
+	if not text or sms_parts(text) > MAX_PARTS:
+		raise InvalidMessage(f"text is empty or longer than {MAX_PARTS} SMS parts")
 	if not _SOURCE_REF.fullmatch(source_reference or ""):
 		raise InvalidMessage("source_reference must match [A-Za-z0-9._:-]{1,128}")
 	if expires_at is not None and expires_at.tzinfo is None:
