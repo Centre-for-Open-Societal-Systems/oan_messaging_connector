@@ -201,8 +201,16 @@ class TestConnector(unittest.TestCase):
 		self.assertEqual([r.method for r in self.fake.requests], ["POST", "GET"])
 
 	def test_broadcast_and_multipart_texts_are_queued(self):
-		self.assertIsNotNone(queue(purpose="broadcast", text="x" * 459))
-		self.assertIsNotNone(queue(purpose="alert", text="ቅ" * 201))
+		self.assertIsNotNone(queue(purpose="broadcast", text="x" * 459, max_parts=3))
+		self.assertIsNotNone(queue(purpose="alert", text="ቅ" * 201, max_parts=3))
+		self.assertIsNotNone(queue(purpose="broadcast", text="x" * 160))  # one part by default
+
+	def test_one_sms_part_unless_the_caller_asks_for_more(self):
+		self.assertIsNone(queue(text="x" * 161))  # every module notice: one part
+		self.assertIsNone(queue(text="ቅ" * 71))
+		self.assertIsNotNone(queue(text="x" * 306, max_parts=2))
+		self.assertIsNone(queue(text="x" * 307, max_parts=2))
+		self.assertIsNone(queue(text="x" * 10, max_parts=4))  # above OAN's limit
 
 	def test_part_count_matches_oan(self):
 		cases = {
@@ -221,9 +229,8 @@ class TestConnector(unittest.TestCase):
 			self.assertEqual(sms_parts(text), parts, text[:5])
 
 	def test_invalid_messages_are_refused_without_raising(self):
-		too_long = "x" * 460  # 3 parts x 153
-		self.assertIsNone(queue(text=too_long))
-		self.assertIsNone(queue(text="ቅሬታ " * 51))  # Amharic: 3 parts x 67 = 201 characters max
+		self.assertIsNone(queue(text="x" * 460, max_parts=3))  # 3 parts x 153
+		self.assertIsNone(queue(text="ቅሬታ " * 51, max_parts=3))  # Amharic: 3 x 67 = 201 at most
 		self.assertIsNone(queue(purpose="marketing"))
 		otp_exp = datetime.now(UTC) + timedelta(minutes=5)
 		self.assertIsNone(queue(purpose="otp", expires_at=otp_exp))  # OTPs are never stored
