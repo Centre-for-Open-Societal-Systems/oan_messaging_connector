@@ -10,9 +10,9 @@ caller would otherwise rebuild:
   one commit per row, so it is safe with several workers);
 - status polling into a separate field. 202/200 shows as _Submitted_, never "Sent", and
   `unknown` is flagged and never resubmitted;
-- the length check OAN applies: at most 3 SMS parts for `queue_sms` (160 GSM-7
-  characters in one part, or 70 if any Amharic character; 153 / 67 per part beyond that,
-  so at most 459 / 201), and one part for an OTP sent with `send_sms_now`;
+- the length check: **one SMS part** by default (160 GSM-7 characters, or 70 if any
+  Amharic character). A caller that sends longer texts on purpose passes `max_parts` up
+  to 3 (153 / 67 per part, so at most 459 / 201); OTPs with `send_sms_now` are one part;
 - a daily **purge**: finished rows keep only delivery metadata after a retention period
   (default 7 days); the text is cleared and the recipient masked;
 - **OAN Messaging Settings**: base URL, caller token (Password), CA bundle, retention.

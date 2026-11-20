@@ -4,7 +4,7 @@
 
     queue_sms(
         recipient=doc.phone_number,
-        text=rendered_text,                       # at most sms.MAX_PARTS parts, see sms.sms_parts
+        text=rendered_text,                       # one SMS part unless max_parts says more
         purpose="transactional",                  # transactional | alert | broadcast
         source_reference=f"a2c:{doc.name}:application_submitted",
         reference_doctype=doc.doctype, reference_name=doc.name,
@@ -45,8 +45,15 @@ class InvalidMessage(ValueError):
 
 
 def validate(
-	recipient: str, text: str, purpose: str, source_reference: str, expires_at: datetime | None
+	recipient: str,
+	text: str,
+	purpose: str,
+	source_reference: str,
+	expires_at: datetime | None,
+	max_parts: int = 1,
 ) -> None:
+	if not 1 <= max_parts <= MAX_PARTS:
+		raise InvalidMessage(f"max_parts must be 1 to {MAX_PARTS}")
 	if not recipient or not recipient.strip():
 		raise InvalidMessage("recipient is empty")
 	if clean_mobile(recipient) is None:
@@ -55,8 +62,8 @@ def validate(
 		raise InvalidMessage("otp is not queued through the outbox; send it at once with the OAN client")
 	if purpose not in PURPOSES:
 		raise InvalidMessage(f"purpose must be one of {sorted(PURPOSES)}")
-	if not text or sms_parts(text) > MAX_PARTS:
-		raise InvalidMessage(f"text is empty or longer than {MAX_PARTS} SMS parts")
+	if not text or sms_parts(text) > max_parts:
+		raise InvalidMessage(f"text is empty or longer than {max_parts} SMS part(s)")
 	if not _SOURCE_REF.fullmatch(source_reference or ""):
 		raise InvalidMessage("source_reference must match [A-Za-z0-9._:-]{1,128}")
 	if expires_at is not None and expires_at.tzinfo is None:
@@ -74,10 +81,14 @@ def queue_sms(
 	event: str | None = None,
 	language: str | None = None,
 	expires_at: datetime | None = None,
+	max_parts: int = 1,
 ) -> str | None:
 	"""Queue one SMS; returns the OAN Message name, or None (disabled, invalid or failed).
 
-	Never raises: any failure is logged and the caller's business action goes on.
+	``max_parts``: one SMS part by default (every module notice is designed to fit one).
+	A caller that sends longer texts on purpose, such as DA broadcasts, passes up to
+	``sms.MAX_PARTS`` (3); each part is charged. Never raises: any failure is logged and
+	the caller's business action goes on.
 	"""
 	try:
 		return _queue_sms(
@@ -90,6 +101,7 @@ def queue_sms(
 			event=event,
 			language=language,
 			expires_at=expires_at,
+			max_parts=max_parts,
 		)
 	except Exception as exc:  # never break the caller's business action
 		_log(f"OAN SMS not queued ({reference_doctype} {reference_name} {event}): {type(exc).__name__}")
@@ -114,11 +126,12 @@ def _queue_sms(
 	event,
 	language,
 	expires_at,
+	max_parts,
 ) -> str | None:
 	if not enabled():
 		return None
 	try:
-		validate(recipient or "", text, purpose, source_reference, expires_at)
+		validate(recipient or "", text, purpose, source_reference, expires_at, max_parts)
 	except InvalidMessage as exc:
 		_log(f"OAN SMS not queued ({reference_doctype} {reference_name} {event}): {exc}")
 		return None
