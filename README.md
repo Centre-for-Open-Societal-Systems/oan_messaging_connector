@@ -1,7 +1,7 @@
 # OAN Messaging Connector (Frappe app)
 
 A reusable Frappe app that sends SMS from any Frappe service (A2C Credit, Grievance, DA,
-Auth, ...) through the **OAN Messaging Service** (contract 3.0.0). It owns the parts every
+Auth, ...) through the **OAN Messaging Service** (contract 3.1.0). It owns the parts every
 caller would otherwise rebuild:
 
 - the **OAN Message** outbox: one row per intended message, with a random UUID4
@@ -10,7 +10,9 @@ caller would otherwise rebuild:
   one commit per row, so it is safe with several workers);
 - status polling into a separate field. 202/200 shows as _Submitted_, never "Sent", and
   `unknown` is flagged and never resubmitted;
-- the one-SMS-part length check: 160 GSM-7 characters, or 70 if any Amharic character;
+- the length check OAN applies: at most 3 SMS parts for `queue_sms` (160 GSM-7
+  characters in one part, or 70 if any Amharic character; 153 / 67 per part beyond that,
+  so at most 459 / 201), and one part for an OTP sent with `send_sms_now`;
 - a daily **purge**: finished rows keep only delivery metadata after a retention period
   (default 7 days); the text is cleared and the recipient masked;
 - **OAN Messaging Settings**: base URL, caller token (Password), CA bundle, retention.
@@ -32,8 +34,9 @@ OAN services (see `LICENSE`).
              reference_doctype=doc.doctype, reference_name=doc.name, event="<event>")
    ```
 
-   - `purpose` is `transactional` or `alert`. `expires_at`, when given, must be
-     timezone-aware.
+   - `purpose` is `transactional`, `alert` or `broadcast` (OAN accepts `broadcast` once its
+     `broadcast_enabled` setting is on). `expires_at`, when given, must be
+     timezone-aware. `sms.sms_parts(text)` gives the part count OAN will charge for.
    - **OTPs are refused.** The outbox stores the text, and an OTP must never be stored.
      OTP senders send at once with `oan_messaging_connector.send_now.send_sms_now`
      instead, from a job that holds the code only in its arguments (see the Auth kit).

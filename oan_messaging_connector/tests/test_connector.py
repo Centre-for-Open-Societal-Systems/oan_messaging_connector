@@ -12,6 +12,7 @@ import frappe
 import httpx
 
 from oan_messaging_connector import api, outbox
+from oan_messaging_connector.sms import sms_parts
 
 MID = "0b9f3a52-5c1e-4d55-9b7a-3f1c2a7e9d10"
 PHONE = "0900000701"
@@ -199,11 +200,31 @@ class TestConnector(unittest.TestCase):
 		self.assertEqual((row.oan_status, row.needs_attention, row.poll_complete), ("unknown", 1, 1))
 		self.assertEqual([r.method for r in self.fake.requests], ["POST", "GET"])
 
+	def test_broadcast_and_multipart_texts_are_queued(self):
+		self.assertIsNotNone(queue(purpose="broadcast", text="x" * 459))
+		self.assertIsNotNone(queue(purpose="alert", text="ቅ" * 201))
+
+	def test_part_count_matches_oan(self):
+		cases = {
+			"": 1,
+			"a" * 160: 1,
+			"a" * 161: 2,
+			"a" * 307: 3,
+			"ቅ" * 70: 1,
+			"ቅ" * 71: 2,
+			"ቅ" * 201: 3,
+			"{" * 228 + "a": 3,
+			"{" * 228 + "aa": 4,
+			"😀" * 100: 4,
+		}
+		for text, parts in cases.items():
+			self.assertEqual(sms_parts(text), parts, text[:5])
+
 	def test_invalid_messages_are_refused_without_raising(self):
-		too_long = "x" * 161
+		too_long = "x" * 460  # 3 parts x 153
 		self.assertIsNone(queue(text=too_long))
-		self.assertIsNone(queue(text="ቅሬታ " * 20))  # Amharic: 70 characters max
-		self.assertIsNone(queue(purpose="broadcast"))
+		self.assertIsNone(queue(text="ቅሬታ " * 51))  # Amharic: 3 parts x 67 = 201 characters max
+		self.assertIsNone(queue(purpose="marketing"))
 		otp_exp = datetime.now(UTC) + timedelta(minutes=5)
 		self.assertIsNone(queue(purpose="otp", expires_at=otp_exp))  # OTPs are never stored
 		self.assertIsNone(queue(recipient=""))
