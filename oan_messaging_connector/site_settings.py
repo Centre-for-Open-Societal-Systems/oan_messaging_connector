@@ -34,4 +34,4 @@ def sync_settings() -> None:
 	doc = frappe.get_single(SETTINGS_DOCTYPE)
 	doc.update(values)
 	doc.save(ignore_permissions=True)
-	print(f"{SETTINGS_DOCTYPE}: {', '.join(sorted(values))} written")
+	frappe.logger("oan_messaging_connector").info(f"{SETTINGS_DOCTYPE}: {', '.join(sorted(values))} written")
