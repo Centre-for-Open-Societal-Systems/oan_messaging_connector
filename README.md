@@ -56,11 +56,11 @@ OAN services (see `LICENSE`).
 Never call OAN inside a web request: the network call would hold the transaction open
 and send even if it rolls back.
 
-| Message | Call | Stored? |
-| ------- | ---- | ------- |
-| Any notice about a business event | `queue_sms` (sent after commit, retried, polled) | Yes, until retention |
-| OTP, or text that must not rest in the database (a sensitive case's PIN) | `send_sms_now`, from `frappe.enqueue(..., enqueue_after_commit=True)` with the text only in the job's arguments | No |
-| A module that already sends through Frappe's `_send_sms` | The `send_sms` hook, as an interim step only | No |
+| Message                                                                  | Call                                                                                                            | Stored?              |
+| ------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------- | -------------------- |
+| Any notice about a business event                                        | `queue_sms` (sent after commit, retried, polled)                                                                | Yes, until retention |
+| OTP, or text that must not rest in the database (a sensitive case's PIN) | `send_sms_now`, from `frappe.enqueue(..., enqueue_after_commit=True)` with the text only in the job's arguments | No                   |
+| A module that already sends through Frappe's `_send_sms`                 | The `send_sms` hook, as an interim step only                                                                    | No                   |
 
 ## Existing Frappe SMS senders: the `send_sms` hook (supported, not preferred)
 
