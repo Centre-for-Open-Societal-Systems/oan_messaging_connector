@@ -1,7 +1,7 @@
 """Frappe ``send_sms`` hook: route Frappe's own SMS sender through OAN Messaging.
 
 **Explicit calls are the preferred integration.** New SMS features call
-``oan_messaging_connector.api.queue_sms`` (or, for OTPs, send at once with the OAN
+``oan_messaging_service.api.queue_sms`` (or, for OTPs, send at once with the OAN
 client). This hook exists only so that modules which already send through Frappe's
 built-in sender (``frappe.core.doctype.sms_settings.sms_settings._send_sms``) - today
 Grievance and Auth - can switch to OAN Messaging without rewriting their send path.
@@ -9,7 +9,7 @@ Grievance and Auth - can switch to OAN Messaging without rewriting their send pa
 It is **opt-in per module**: installing the connector registers nothing. A module turns
 it on with one line in its own ``hooks.py``::
 
-    send_sms = "oan_messaging_connector.sms_hook.send_sms"
+    send_sms = "oan_messaging_service.sms_hook.send_sms"
 
 Frappe then calls this function, with the same arguments, instead of its HTTP gateway.
 A ``send_sms`` hook applies to the whole site: every ``_send_sms`` call on that site goes

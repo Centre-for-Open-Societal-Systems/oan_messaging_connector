@@ -1,4 +1,4 @@
-# OAN Messaging Connector (Frappe app)
+# OAN Messaging Service (Frappe app)
 
 A reusable Frappe app that sends SMS from any Frappe service (A2C Credit, Grievance, DA,
 Auth, ...) through the **OAN Messaging Service** (contract 3.1.0). It owns the parts every
@@ -23,11 +23,11 @@ OAN services (see `LICENSE`).
 ## Use it from a caller app
 
 1. Add it to the caller app's `hooks.py`:
-   `required_apps = [..., "oan_messaging_connector"]`.
+   `required_apps = [..., "oan_messaging_service"]`.
 2. At each business event, inside the transaction, call:
 
    ```python
-   from oan_messaging_connector.api import queue_sms
+   from oan_messaging_service.api import queue_sms
 
    queue_sms(recipient=doc.phone_number, text=text, purpose="transactional",
              source_reference=f"<app>:{doc.name}:<event>",
@@ -38,7 +38,7 @@ OAN services (see `LICENSE`).
      `broadcast_enabled` setting is on). `expires_at`, when given, must be
      timezone-aware. `sms.sms_parts(text)` gives the part count OAN will charge for.
    - **OTPs are refused.** The outbox stores the text, and an OTP must never be stored.
-     OTP senders send at once with `oan_messaging_connector.send_now.send_sms_now`
+     OTP senders send at once with `oan_messaging_service.send_now.send_sms_now`
      instead, from a job that holds the code only in its arguments (see the Auth kit).
    - `queue_sms` never sends inline and never raises: if the connector is disabled, the
      message is invalid, or settings, the database or the queue fail, it returns `None`
@@ -72,7 +72,7 @@ so that sender goes to OAN before the module rewrites its send path.
 It is **off unless a module opts in** with one line in its own `hooks.py`:
 
 ```python
-send_sms = "oan_messaging_connector.sms_hook.send_sms"
+send_sms = "oan_messaging_service.sms_hook.send_sms"
 ```
 
 Why it is only an interim step:
@@ -131,7 +131,7 @@ Retention: **Clear Message Text After (days)** in the settings (default 7), or
 
 - Desk, **OAN Message** list: filter **Needs Attention** for messages rejected by OAN,
   reconciliation cases and `unknown` outcomes.
-- `oan_messaging_connector.api.messages_for(doctype, name)` returns the delivery state of
+- `oan_messaging_service.api.messages_for(doctype, name)` returns the delivery state of
   one business record, for support screens.
 - Rows cannot be deleted; they are the delivery audit trail. After the retention period
   they keep only metadata (status, ids, masked recipient, times).
@@ -140,7 +140,7 @@ Retention: **Clear Message Text After (days)** in the settings (default 7), or
 
 ```
 bench --site <test-site> set-config allow_tests true
-bench --site <test-site> run-tests --app oan_messaging_connector
+bench --site <test-site> run-tests --app oan_messaging_service
 ```
 
 The tests use an in-process fake OAN API and need no network. `test_sms_hook.py` also
@@ -161,7 +161,7 @@ The app follows the same checks as the other OAN Frappe apps:
 - Database access uses the Frappe query builder; there is no hand-written SQL. Workers
   claim one due row at a time with `FOR UPDATE SKIP LOCKED` and commit after each row;
   those commits are marked and justified in the code.
-- `oan_messaging_connector/vendor/` is copied unchanged from `oan_messaging_services`
+- `oan_messaging_service/vendor/` is copied unchanged from `oan_messaging_services`
   (`examples/`) except for relative imports, and is excluded from ruff here: it is
   linted and tested in that repository.
 

@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
+import re
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -30,6 +31,7 @@ import frappe
 from frappe.query_builder.functions import IfNull
 from frappe.utils import now_datetime
 
+from .sms import ET_MOBILE
 from .vendor.oan_client import ClientConfig, OanClient, Secret
 from .vendor.outbox_dispatch import OutboxRow, dispatch, reconcile
 
@@ -56,6 +58,18 @@ def _settings() -> dict[str, Any]:
 		"max_attempts": int(s.get("max_attempts") or 3),
 		"receipt_wait": timedelta(days=int(s.get("receipt_wait_days") or 7)),
 	}
+
+
+def recipient_pattern() -> re.Pattern[str]:
+	"""The pattern a recipient must fully match (after separators are removed).
+
+	site_config ``oan_messaging_recipient_pattern`` overrides the setting; blank means the
+	Ethiopian mobile pattern. An invalid pattern raises ``re.error``, which callers treat as
+	"not sent", never as "valid"."""
+	custom = frappe.conf.get("oan_messaging_recipient_pattern") or frappe.get_cached_doc(SETTINGS).get(
+		"recipient_pattern"
+	)
+	return re.compile(custom.strip()) if custom and custom.strip() else ET_MOBILE
 
 
 def enabled() -> bool:
