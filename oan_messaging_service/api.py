@@ -1,6 +1,6 @@
 """Public API for caller apps: queue one SMS through the OAN Messaging Service.
 
-    from oan_messaging_connector.api import queue_sms
+    from oan_messaging_service.api import queue_sms
 
     queue_sms(
         recipient=doc.phone_number,
@@ -28,7 +28,7 @@ from typing import Any
 
 import frappe
 
-from .outbox import DOCTYPE, enabled, record_for_insert
+from .outbox import DOCTYPE, enabled, recipient_pattern, record_for_insert
 from .sms import MAX_PARTS, clean_mobile, sms_parts
 from .vendor.outbox_dispatch import OutboxRow
 
@@ -56,8 +56,8 @@ def validate(
 		raise InvalidMessage(f"max_parts must be 1 to {MAX_PARTS}")
 	if not recipient or not recipient.strip():
 		raise InvalidMessage("recipient is empty")
-	if clean_mobile(recipient) is None:
-		raise InvalidMessage("recipient is not an Ethiopian mobile number (09/07 series)")
+	if clean_mobile(recipient, recipient_pattern()) is None:
+		raise InvalidMessage("recipient is not a valid mobile number for this site")
 	if purpose == "otp":
 		raise InvalidMessage("otp is not queued through the outbox; send it at once with the OAN client")
 	if purpose not in PURPOSES:
@@ -141,7 +141,7 @@ def _queue_sms(
 		return None
 	row = OutboxRow(
 		delivery_id="",  # set by OAN Message.before_insert (UUID4)
-		recipient=clean_mobile(recipient),
+		recipient=clean_mobile(recipient, recipient_pattern()),
 		text=text,
 		source_reference=source_reference,
 		purpose=purpose,
@@ -174,7 +174,7 @@ def _queue_sms(
 		return None
 	try:
 		frappe.enqueue(
-			"oan_messaging_connector.outbox.dispatch_queued", queue="short", enqueue_after_commit=True
+			"oan_messaging_service.outbox.dispatch_queued", queue="short", enqueue_after_commit=True
 		)
 	except Exception as exc:  # the one-minute sweep still dispatches the row
 		_log(f"OAN SMS queued but not enqueued ({doc.name}): {type(exc).__name__}")

@@ -1,5 +1,6 @@
 """Rules OAN enforces: SMS length (an OTP in one part, any other text in at most
-MAX_PARTS parts) and an Ethiopian mobile recipient (09 or 07 series)."""
+MAX_PARTS parts) and a mobile recipient (Ethiopian 09 or 07 series unless the site sets
+its own recipient pattern)."""
 
 import re
 
@@ -48,8 +49,10 @@ ET_MOBILE = re.compile(r"^(\+?251[79][0-9]{8}|0[79][0-9]{8})$")
 _SEPARATORS = re.compile(r"[\s\-().]")
 
 
-def clean_mobile(raw: str | None) -> str | None:
-	"""``raw`` without spaces, dashes, dots or brackets if it is an Ethiopian mobile OAN
-	accepts (``09…``, ``07…``, ``2519…``, ``+2519…``, ``2517…``, ``+2517…``), else None."""
+def clean_mobile(raw: str | None, pattern: re.Pattern[str] = ET_MOBILE) -> str | None:
+	"""``raw`` without spaces, dashes, dots or brackets if it matches ``pattern``, else None.
+
+	The default accepts the Ethiopian mobile forms OAN accepts (``09…``, ``07…``, ``2519…``,
+	``+2519…``, ``2517…``, ``+2517…``)."""
 	candidate = _SEPARATORS.sub("", raw or "")
-	return candidate if ET_MOBILE.fullmatch(candidate) else None
+	return candidate if pattern.fullmatch(candidate) else None

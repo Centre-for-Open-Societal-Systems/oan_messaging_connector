@@ -7,7 +7,7 @@
  "links": [],
  "modified": "2026-11-16 18:00:00.000000",
  "modified_by": "Administrator",
- "module": "OAN Messaging Connector",
+ "module": "OAN Messaging Service",
  "owner": "Administrator",
  "states": [],
  "sort_field": "creation",
@@ -22,6 +22,7 @@
   "max_attempts",
   "receipt_wait_days",
   "content_retention_days",
+  "recipient_pattern",
   "send_sms_hook_section",
   "hook_purpose",
   "hook_expiry_minutes"
@@ -71,10 +72,16 @@
    "description": "Finished rows keep only delivery metadata after this many days: the text is cleared and the recipient masked. site_config oan_messaging_content_retention_days overrides it."
   },
   {
+   "fieldname": "recipient_pattern",
+   "fieldtype": "Data",
+   "label": "Recipient Pattern (regex)",
+   "description": "Regex a recipient must fully match, after spaces, dashes, dots and brackets are removed. Leave blank for Ethiopian mobile numbers (09/07 series, +251). site_config oan_messaging_recipient_pattern overrides it. OAN itself still accepts Ethiopian numbers only."
+  },
+  {
    "fieldname": "send_sms_hook_section",
    "fieldtype": "Section Break",
    "label": "Frappe send_sms Hook (only for apps that register it)",
-   "description": "Used only when an app on this site registers send_sms = \"oan_messaging_connector.sms_hook.send_sms\" in its hooks.py. New features should call queue_sms instead."
+   "description": "Used only when an app on this site registers send_sms = \"oan_messaging_service.sms_hook.send_sms\" in its hooks.py. New features should call queue_sms instead."
   },
   {
    "fieldname": "hook_purpose",

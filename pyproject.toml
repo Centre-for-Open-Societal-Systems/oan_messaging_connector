@@ -1,5 +1,5 @@
 [project]
-name = "oan_messaging_connector"
+name = "oan_messaging_service"
 authors = [{ name = "OpenAgriNet", email = "admin@openagrinet.org" }]
 description = "Reusable Frappe app that sends SMS through the OAN Messaging Service (outbox, dispatch, status polling)"
 requires-python = ">=3.11"
@@ -18,7 +18,7 @@ line-length = 110
 target-version = "py311"
 # The OAN client and dispatch logic are vendored unchanged from oan_messaging_services
 # (examples/oan_client), which lints them with its own settings. Keep them byte-identical.
-extend-exclude = ["oan_messaging_connector/vendor"]
+extend-exclude = ["oan_messaging_service/vendor"]
 force-exclude = true
 
 [tool.ruff.lint]

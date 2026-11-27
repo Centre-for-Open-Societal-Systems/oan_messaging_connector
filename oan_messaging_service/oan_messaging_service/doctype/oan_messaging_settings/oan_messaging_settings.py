@@ -1,3 +1,5 @@
+import re
+
 import frappe
 from frappe.model.document import Document
 
@@ -9,8 +11,13 @@ class OANMessagingSettings(Document):
 			frappe.throw(frappe._("Base URL must start with https://."))
 		if self.max_attempts is not None and int(self.max_attempts) < 1:
 			frappe.throw(frappe._("HTTP attempts must be at least 1."))
+		if (self.recipient_pattern or "").strip():
+			try:
+				re.compile(self.recipient_pattern.strip())
+			except re.error as exc:
+				frappe.throw(frappe._("Recipient pattern is not a valid regex: {0}").format(exc))
 		if self.hook_expiry_minutes is not None:
-			from oan_messaging_connector.sms_hook import MAX_EXPIRY_MINUTES
+			from oan_messaging_service.sms_hook import MAX_EXPIRY_MINUTES
 
 			ceiling = MAX_EXPIRY_MINUTES.get(self.hook_purpose or "transactional", 30)
 			if not 1 <= int(self.hook_expiry_minutes) <= ceiling:

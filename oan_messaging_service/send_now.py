@@ -2,9 +2,9 @@
 
 For messages that must never be stored, such as OTPs: the caller keeps the text only
 in its own job arguments and sends from a job that runs after its transaction commits.
-Everything else should use ``oan_messaging_connector.api.queue_sms``.
+Everything else should use ``oan_messaging_service.api.queue_sms``.
 
-    from oan_messaging_connector.send_now import NotConfigured, OanRejected, OanUncertain, send_sms_now
+    from oan_messaging_service.send_now import NotConfigured, OanRejected, OanUncertain, send_sms_now
 
     submission = send_sms_now(
         idempotency_key=delivery_id,  # a UUID4 created when the code was issued
@@ -34,7 +34,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from .outbox import _run, enabled
+from .outbox import _run, enabled, recipient_pattern
 from .sms import clean_mobile, fits_one_sms
 from .vendor.oan_client import (
 	OanClientError,
@@ -87,9 +87,9 @@ def send_sms_now(
 		raise NotConfigured("OAN Messaging is not enabled or not configured on this site")
 	if not text or not fits_one_sms(text):
 		raise ValueError("text is empty or does not fit one SMS part")
-	phone = clean_mobile(recipient)
+	phone = clean_mobile(recipient, recipient_pattern())
 	if phone is None:
-		raise ValueError("recipient is not an Ethiopian mobile number (09/07 series)")
+		raise ValueError("recipient is not a valid mobile number for this site")
 	delivery = SmsDelivery(
 		idempotency_key=idempotency_key,
 		recipient=phone,
